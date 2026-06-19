@@ -61,6 +61,7 @@ export const addClientToDatabase = (
         scheduledDate: firstServiceDate,
         status: 'pending',
         paymentMethod: null,
+        specialServices: [],
       },
     ],
   }
@@ -86,6 +87,7 @@ export const completeTaskInDatabase = (
   const client = database.clients.find((item) => item.id === task.clientId)
   if (!client) return database
 
+  const shouldScheduleNextTask = client.frequency !== 'once'
   const nextDate = getNextServiceDate(task.scheduledDate, client.frequency)
   const alreadyScheduled = database.tasks.some(
     (item) =>
@@ -107,7 +109,7 @@ export const completeTaskInDatabase = (
             }
           : item,
       ),
-      ...(alreadyScheduled
+      ...(!shouldScheduleNextTask || alreadyScheduled
         ? []
         : [
             {
@@ -116,11 +118,31 @@ export const completeTaskInDatabase = (
               scheduledDate: nextDate,
               status: 'pending' as const,
               paymentMethod: null,
+              specialServices: [],
             },
           ]),
     ],
   }
 }
+
+export const addSpecialServiceToTaskInDatabase = (
+  database: AppDatabase,
+  taskId: string,
+  service: { name: string; price: number },
+): AppDatabase => ({
+  ...database,
+  tasks: database.tasks.map((task) =>
+    task.id === taskId
+      ? {
+          ...task,
+          specialServices: [
+            ...(task.specialServices ?? []),
+            { ...service, id: createId('special-service') },
+          ],
+        }
+      : task,
+  ),
+})
 
 export const moveTaskInDatabase = (
   database: AppDatabase,

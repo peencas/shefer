@@ -11,6 +11,7 @@ export const addDays = (dateKey: string, days: number) => {
 }
 
 export const getNextServiceDate = (dateKey: string, frequency: Frequency) => {
+  if (frequency === 'once') return dateKey
   if (frequency === 'weekly') return addDays(dateKey, 7)
   if (frequency === 'biweekly') return addDays(dateKey, 14)
 

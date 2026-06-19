@@ -20,6 +20,7 @@ import {
 import {
   addClientToDatabase,
   addExpenseToDatabase,
+  addSpecialServiceToTaskInDatabase,
   completeTaskInDatabase,
   deleteClientFromDatabase,
   loadDatabase,
@@ -60,6 +61,7 @@ const frequencyLabels: Record<Frequency, string> = {
   weekly: 'כל שבוע',
   biweekly: 'כל שבועיים',
   monthly: 'פעם בחודש',
+  once: 'חד פעמי',
 }
 
 const paymentLabels: Record<PaymentMethod, string> = {
@@ -88,10 +90,14 @@ const getPhoneLink = (phone: string) => phone.replace(/\D/g, '')
 const getClient = (clients: Client[], clientId: string) =>
   clients.find((client) => client.id === clientId)
 
+const getTaskTotal = ({ task, client }: TaskWithClient) =>
+  client.price + (task.specialServices ?? []).reduce((sum, service) => sum + service.price, 0)
+
 function App() {
   const [database, setDatabase] = useState<AppDatabase>(() => loadDatabase())
   const [activePage, setActivePage] = useState<Page>('dashboard')
   const [paymentTask, setPaymentTask] = useState<TaskWithClient | null>(null)
+  const [specialServiceTask, setSpecialServiceTask] = useState<TaskWithClient | null>(null)
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
 
@@ -135,7 +141,11 @@ function App() {
 
         <div className="flex-1">
           {activePage === 'dashboard' && (
-            <DashboardPage tasks={tasksWithClients} onOpenPayment={setPaymentTask} />
+            <DashboardPage
+              tasks={tasksWithClients}
+              onOpenPayment={setPaymentTask}
+              onOpenSpecialService={setSpecialServiceTask}
+            />
           )}
 
           {activePage === 'calendar' && (
@@ -182,6 +192,19 @@ function App() {
           onAddExpense={(expense) => {
             setDatabase((current) => addExpenseToDatabase(current, expense))
             setExpenseModalOpen(false)
+          }}
+        />
+      )}
+
+      {specialServiceTask && (
+        <SpecialServiceModal
+          task={specialServiceTask}
+          onClose={() => setSpecialServiceTask(null)}
+          onAddService={(service) => {
+            setDatabase((current) =>
+              addSpecialServiceToTaskInDatabase(current, specialServiceTask.task.id, service),
+            )
+            setSpecialServiceTask(null)
           }}
         />
       )}
@@ -268,9 +291,11 @@ function AppHeader() {
 function DashboardPage({
   tasks,
   onOpenPayment,
+  onOpenSpecialService,
 }: {
   tasks: TaskWithClient[]
   onOpenPayment: (task: TaskWithClient) => void
+  onOpenSpecialService: (task: TaskWithClient) => void
 }) {
   const todayTasks = tasks
     .filter(({ task }) => task.scheduledDate === todayKey())
@@ -285,7 +310,12 @@ function DashboardPage({
       ) : (
         <div className="space-y-4">
           {todayTasks.map((item) => (
-            <StoreCard key={item.task.id} item={item} onOpenPayment={onOpenPayment} />
+            <StoreCard
+              key={item.task.id}
+              item={item}
+              onOpenPayment={onOpenPayment}
+              onOpenSpecialService={onOpenSpecialService}
+            />
           ))}
         </div>
       )}
@@ -296,11 +326,14 @@ function DashboardPage({
 function StoreCard({
   item,
   onOpenPayment,
+  onOpenSpecialService,
 }: {
   item: TaskWithClient
   onOpenPayment: (task: TaskWithClient) => void
+  onOpenSpecialService: (task: TaskWithClient) => void
 }) {
   const isDone = item.task.status === 'done'
+  const specialServices = item.task.specialServices ?? []
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     item.client.address,
   )}`
@@ -324,9 +357,24 @@ function StoreCard({
           </p>
         </div>
         <div className="rounded-2xl border border-cyan-100 bg-cyan-50/80 px-3 py-2 text-lg font-black text-cyan-800">
-          {currency.format(item.client.price)}
+          {currency.format(getTaskTotal(item))}
         </div>
       </div>
+
+      {specialServices.length > 0 && (
+        <div className="mb-4 space-y-2 rounded-2xl border border-cyan-100 bg-white/70 p-3">
+          <p className="text-sm font-black text-cyan-800">שירותים מיוחדים</p>
+          {specialServices.map((service) => (
+            <div
+              key={service.id}
+              className="flex items-center justify-between gap-3 text-sm font-bold text-slate-600"
+            >
+              <span>{service.name}</span>
+              <span>{currency.format(service.price)}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {isDone && (
         <div className="mb-4 flex items-center gap-2 rounded-2xl bg-white/80 px-4 py-3 text-sm font-bold text-emerald-800">
@@ -355,6 +403,16 @@ function StoreCard({
           בוצע
         </button>
       </div>
+      {!isDone && (
+        <button
+          type="button"
+          onClick={() => onOpenSpecialService(item)}
+          className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-cyan-200 bg-white/80 px-4 text-base font-black text-cyan-900 shadow-lg shadow-cyan-500/10 backdrop-blur"
+        >
+          <Plus className="h-5 w-5" />
+          הוסף שירות מיוחד
+        </button>
+      )}
     </article>
   )
 }
@@ -495,7 +553,7 @@ function CalendarPage({
                   <div>
                     <p className="text-lg font-black">{client.storeName}</p>
                     <p className="text-sm font-semibold text-stone-500">
-                      {client.address} · {currency.format(client.price)}
+                      {client.address} · {currency.format(getTaskTotal({ task, client }))}
                     </p>
                   </div>
                   <span
@@ -641,7 +699,7 @@ function ClientPage({
 
         <div>
           <label className="mb-2 block text-sm font-black text-stone-700">תדירות הסיבוב</label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {(Object.keys(frequencyLabels) as Frequency[]).map((option) => (
               <button
                 key={option}
@@ -743,10 +801,10 @@ function FinancePage({
   )
   const todayRevenue = paidTasks
     .filter(({ task }) => task.scheduledDate === today)
-    .reduce((sum, { client }) => sum + client.price, 0)
+    .reduce((sum, item) => sum + getTaskTotal(item), 0)
   const monthRevenue = paidTasks
     .filter(({ task }) => isSameMonth(task.scheduledDate, now))
-    .reduce((sum, { client }) => sum + client.price, 0)
+    .reduce((sum, item) => sum + getTaskTotal(item), 0)
   const todayExpenses = expenses
     .filter((expense) => expense.date === today)
     .reduce((sum, expense) => sum + expense.amount, 0)
@@ -794,7 +852,7 @@ function FinancePage({
                     </p>
                   </div>
                   <p className="text-xl font-black text-red-700">
-                    {currency.format(client.price)}
+                    {currency.format(getTaskTotal({ task, client }))}
                   </p>
                 </div>
               </div>
@@ -803,6 +861,52 @@ function FinancePage({
         )}
       </div>
     </section>
+  )
+}
+
+function SpecialServiceModal({
+  task,
+  onClose,
+  onAddService,
+}: {
+  task: TaskWithClient
+  onClose: () => void
+  onAddService: (service: { name: string; price: number }) => void
+}) {
+  const [name, setName] = useState('')
+  const [price, setPrice] = useState('')
+
+  const submitService = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!name || !price) return
+    onAddService({ name, price: Number(price) })
+  }
+
+  return (
+    <Modal title="שירות מיוחד" onClose={onClose}>
+      <p className="mb-5 text-center text-lg font-bold text-stone-600">{task.client.storeName}</p>
+      <form onSubmit={submitService} className="space-y-4">
+        <TextField
+          label="מה השירות?"
+          value={name}
+          onChange={setName}
+          required
+        />
+        <TextField
+          label="מחיר השירות"
+          value={price}
+          onChange={setPrice}
+          type="number"
+          required
+        />
+        <button
+          type="submit"
+          className="aqua-gradient soft-glow min-h-14 w-full rounded-2xl text-lg font-black text-white"
+        >
+          הוסף לשירות היום
+        </button>
+      </form>
+    </Modal>
   )
 }
 
@@ -908,7 +1012,7 @@ function PaymentGroup({
                   </p>
                 </div>
                 <span className={`rounded-2xl border px-3 py-2 text-sm font-black ${toneClasses[tone]}`}>
-                  {currency.format(client.price)}
+                  {currency.format(getTaskTotal({ task, client }))}
                 </span>
               </div>
             </article>

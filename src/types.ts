@@ -1,10 +1,16 @@
-export type Frequency = 'weekly' | 'biweekly' | 'monthly'
+export type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'once'
 
 export type PaymentMethod = 'cash' | 'transfer' | 'debt'
 
 export type TaskStatus = 'pending' | 'done'
 
 export type ExpenseCategory = 'fuel' | 'supplies' | 'parking' | 'other'
+
+export type SpecialService = {
+  id: string
+  name: string
+  price: number
+}
 
 export type Client = {
   id: string
@@ -22,6 +28,7 @@ export type ServiceTask = {
   scheduledDate: string
   status: TaskStatus
   paymentMethod: PaymentMethod | null
+  specialServices?: SpecialService[]
   completedAt?: string
 }
 

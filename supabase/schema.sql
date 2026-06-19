@@ -4,10 +4,12 @@
 create extension if not exists "pgcrypto";
 
 do $$ begin
-  create type public.frequency_type as enum ('weekly', 'biweekly', 'monthly');
+  create type public.frequency_type as enum ('weekly', 'biweekly', 'monthly', 'once');
 exception
   when duplicate_object then null;
 end $$;
+
+alter type public.frequency_type add value if not exists 'once';
 
 do $$ begin
   create type public.task_status as enum ('pending', 'done');
@@ -69,12 +71,23 @@ create table if not exists public.expenses (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.special_services (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  task_id uuid not null references public.service_tasks (id) on delete cascade,
+  name text not null,
+  price numeric(10, 2) not null check (price >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists clients_user_id_idx on public.clients (user_id);
 create index if not exists clients_is_active_idx on public.clients (is_active);
 create index if not exists service_tasks_user_date_idx on public.service_tasks (user_id, scheduled_date);
 create index if not exists service_tasks_client_date_idx on public.service_tasks (client_id, scheduled_date);
 create index if not exists service_tasks_status_payment_idx on public.service_tasks (status, payment_method);
 create index if not exists expenses_user_date_idx on public.expenses (user_id, expense_date);
+create index if not exists special_services_user_task_idx on public.special_services (user_id, task_id);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -101,9 +114,15 @@ create trigger set_expenses_updated_at
 before update on public.expenses
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_special_services_updated_at on public.special_services;
+create trigger set_special_services_updated_at
+before update on public.special_services
+for each row execute function public.set_updated_at();
+
 alter table public.clients enable row level security;
 alter table public.service_tasks enable row level security;
 alter table public.expenses enable row level security;
+alter table public.special_services enable row level security;
 
 drop policy if exists "Users can read their clients" on public.clients;
 create policy "Users can read their clients"
@@ -177,5 +196,30 @@ with check (auth.uid() = user_id);
 drop policy if exists "Users can delete their expenses" on public.expenses;
 create policy "Users can delete their expenses"
 on public.expenses for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can read their special services" on public.special_services;
+create policy "Users can read their special services"
+on public.special_services for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their special services" on public.special_services;
+create policy "Users can insert their special services"
+on public.special_services for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their special services" on public.special_services;
+create policy "Users can update their special services"
+on public.special_services for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their special services" on public.special_services;
+create policy "Users can delete their special services"
+on public.special_services for delete
 to authenticated
 using (auth.uid() = user_id);
