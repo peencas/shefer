@@ -1,6 +1,6 @@
 import { seedDatabase } from '../data/seed'
 import type { AppDatabase, Client, Expense, PaymentMethod } from '../types'
-import { getNextServiceDate, todayKey } from './date'
+import { addDays, getNextServiceDate, todayKey } from './date'
 
 const STORAGE_KEY = 'shefer-cleaning-database-v1'
 const LEGACY_DEMO_CLIENT_IDS = new Set(['client-1', 'client-2', 'client-3', 'client-4'])
@@ -8,6 +8,30 @@ const LEGACY_DEMO_TASK_IDS = new Set(['task-1', 'task-2', 'task-3', 'task-4'])
 const LEGACY_DEMO_EXPENSE_IDS = new Set(['expense-1'])
 
 const createId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
+
+const createPendingTask = (clientId: string, scheduledDate: string) => ({
+  id: createId('task'),
+  clientId,
+  scheduledDate,
+  status: 'pending' as const,
+  paymentMethod: null,
+  specialServices: [],
+})
+
+const getRecurringDates = (startDate: string, frequency: Client['frequency']) => {
+  if (frequency === 'once') return [startDate]
+
+  const horizonDate = addDays(todayKey(), 370)
+  const dates = [startDate]
+  let nextDate = getNextServiceDate(startDate, frequency)
+
+  while (nextDate <= horizonDate) {
+    dates.push(nextDate)
+    nextDate = getNextServiceDate(nextDate, frequency)
+  }
+
+  return dates
+}
 
 const removeLegacyDemoData = (database: AppDatabase): AppDatabase => ({
   ...database,
@@ -18,6 +42,28 @@ const removeLegacyDemoData = (database: AppDatabase): AppDatabase => ({
   expenses: database.expenses.filter((expense) => !LEGACY_DEMO_EXPENSE_IDS.has(expense.id)),
 })
 
+const ensureRecurringTasks = (database: AppDatabase): AppDatabase => {
+  const tasksToAdd = database.clients.flatMap((client) => {
+    const clientTasks = database.tasks.filter((task) => task.clientId === client.id)
+    const existingDates = new Set(clientTasks.map((task) => task.scheduledDate))
+    const latestExistingDate = clientTasks
+      .map((task) => task.scheduledDate)
+      .sort((a, b) => b.localeCompare(a))[0]
+    const startDate = latestExistingDate ?? todayKey()
+
+    return getRecurringDates(startDate, client.frequency)
+      .filter((date) => !existingDates.has(date))
+      .map((date) => createPendingTask(client.id, date))
+  })
+
+  if (tasksToAdd.length === 0) return database
+
+  return {
+    ...database,
+    tasks: [...database.tasks, ...tasksToAdd],
+  }
+}
+
 export const loadDatabase = (): AppDatabase => {
   const stored = localStorage.getItem(STORAGE_KEY)
 
@@ -27,7 +73,7 @@ export const loadDatabase = (): AppDatabase => {
   }
 
   try {
-    const database = removeLegacyDemoData(JSON.parse(stored) as AppDatabase)
+    const database = ensureRecurringTasks(removeLegacyDemoData(JSON.parse(stored) as AppDatabase))
     localStorage.setItem(STORAGE_KEY, JSON.stringify(database))
     return database
   } catch {
@@ -55,14 +101,9 @@ export const addClientToDatabase = (
     clients: [...database.clients, newClient],
     tasks: [
       ...database.tasks,
-      {
-        id: createId('task'),
-        clientId: newClient.id,
-        scheduledDate: firstServiceDate,
-        status: 'pending',
-        paymentMethod: null,
-        specialServices: [],
-      },
+      ...getRecurringDates(firstServiceDate, newClient.frequency).map((date) =>
+        createPendingTask(newClient.id, date),
+      ),
     ],
   }
 }
@@ -84,44 +125,18 @@ export const completeTaskInDatabase = (
   const task = database.tasks.find((item) => item.id === taskId)
   if (!task) return database
 
-  const client = database.clients.find((item) => item.id === task.clientId)
-  if (!client) return database
-
-  const shouldScheduleNextTask = client.frequency !== 'once'
-  const nextDate = getNextServiceDate(task.scheduledDate, client.frequency)
-  const alreadyScheduled = database.tasks.some(
-    (item) =>
-      item.clientId === client.id &&
-      item.scheduledDate === nextDate &&
-      item.status === 'pending',
-  )
-
   return {
     ...database,
-    tasks: [
-      ...database.tasks.map((item) =>
-        item.id === taskId
-          ? {
-              ...item,
-              status: 'done' as const,
-              paymentMethod,
-              completedAt: new Date().toISOString(),
-            }
-          : item,
-      ),
-      ...(!shouldScheduleNextTask || alreadyScheduled
-        ? []
-        : [
-            {
-              id: createId('task'),
-              clientId: client.id,
-              scheduledDate: nextDate,
-              status: 'pending' as const,
-              paymentMethod: null,
-              specialServices: [],
-            },
-          ]),
-    ],
+    tasks: database.tasks.map((item) =>
+      item.id === taskId
+        ? {
+            ...item,
+            status: 'done' as const,
+            paymentMethod,
+            completedAt: new Date().toISOString(),
+          }
+        : item,
+    ),
   }
 }
 
