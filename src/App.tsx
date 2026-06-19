@@ -50,20 +50,6 @@ type TaskWithClient = {
   client: Client
 }
 
-type ContactPickerContact = {
-  name?: string[]
-  tel?: string[]
-}
-
-type NavigatorWithContacts = Navigator & {
-  contacts?: {
-    select: (
-      properties: Array<'name' | 'tel'>,
-      options?: { multiple?: boolean },
-    ) => Promise<ContactPickerContact[]>
-  }
-}
-
 const currency = new Intl.NumberFormat('he-IL', {
   style: 'currency',
   currency: 'ILS',
@@ -597,25 +583,6 @@ function ClientPage({
   const [frequency, setFrequency] = useState<Frequency>('weekly')
   const [firstServiceDate, setFirstServiceDate] = useState(todayKey())
 
-  const pickContactFromPhone = async () => {
-    const contactsApi = (navigator as NavigatorWithContacts).contacts
-
-    if (!contactsApi) {
-      window.alert('בחירת אנשי קשר נתמכת בעיקר בכרום באנדרואיד. אפשר להזין שם וטלפון ידנית.')
-      return
-    }
-
-    try {
-      const [contact] = await contactsApi.select(['name', 'tel'], { multiple: false })
-      if (!contact) return
-
-      setContactName(contact.name?.[0] ?? '')
-      setPhone(contact.tel?.[0] ?? '')
-    } catch {
-      // The user can cancel the native picker; manual entry stays available.
-    }
-  }
-
   const submitClient = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!storeName || !address || !contactName || !phone || !price) return
@@ -651,14 +618,6 @@ function ClientPage({
       >
         <TextField label="שם החנות" value={storeName} onChange={setStoreName} required />
         <TextField label="כתובת מלאה" value={address} onChange={setAddress} required />
-        <button
-          type="button"
-          onClick={pickContactFromPhone}
-          className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-cyan-200 bg-white/80 text-lg font-black text-cyan-900 shadow-lg shadow-cyan-500/10 backdrop-blur"
-        >
-          <Phone className="h-5 w-5" />
-          בחר איש קשר מהטלפון
-        </button>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <TextField label="שם איש קשר" value={contactName} onChange={setContactName} required />
           <TextField label="טלפון" value={phone} onChange={setPhone} required />
