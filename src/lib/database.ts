@@ -3,8 +3,20 @@ import type { AppDatabase, Client, Expense, PaymentMethod } from '../types'
 import { getNextServiceDate, todayKey } from './date'
 
 const STORAGE_KEY = 'shefer-cleaning-database-v1'
+const LEGACY_DEMO_CLIENT_IDS = new Set(['client-1', 'client-2', 'client-3', 'client-4'])
+const LEGACY_DEMO_TASK_IDS = new Set(['task-1', 'task-2', 'task-3', 'task-4'])
+const LEGACY_DEMO_EXPENSE_IDS = new Set(['expense-1'])
 
 const createId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
+
+const removeLegacyDemoData = (database: AppDatabase): AppDatabase => ({
+  ...database,
+  clients: database.clients.filter((client) => !LEGACY_DEMO_CLIENT_IDS.has(client.id)),
+  tasks: database.tasks.filter(
+    (task) => !LEGACY_DEMO_TASK_IDS.has(task.id) && !LEGACY_DEMO_CLIENT_IDS.has(task.clientId),
+  ),
+  expenses: database.expenses.filter((expense) => !LEGACY_DEMO_EXPENSE_IDS.has(expense.id)),
+})
 
 export const loadDatabase = (): AppDatabase => {
   const stored = localStorage.getItem(STORAGE_KEY)
@@ -15,7 +27,9 @@ export const loadDatabase = (): AppDatabase => {
   }
 
   try {
-    return JSON.parse(stored) as AppDatabase
+    const database = removeLegacyDemoData(JSON.parse(stored) as AppDatabase)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(database))
+    return database
   } catch {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(seedDatabase))
     return seedDatabase
