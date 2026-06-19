@@ -1,0 +1,21 @@
+{
+  "name": "ש.פ.ר ניקיון ואחזקה",
+  "short_name": "ש.פ.ר",
+  "description": "ניהול מסלולי ניקוי חלונות, לקוחות, תשלומים והוצאות.",
+  "dir": "rtl",
+  "lang": "he",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#edf9fc",
+  "theme_color": "#0b95c0",
+  "icons": [
+    {
+      "src": "/shefer-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
