@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
+  Bell,
   Calendar,
   Check,
   ChevronLeft,
@@ -13,6 +14,7 @@ import {
   Plus,
   PlusCircle,
   ReceiptText,
+  StickyNote,
   Trash2,
   Wallet,
   X,
@@ -20,12 +22,15 @@ import {
 import {
   addClientToDatabase,
   addExpenseToDatabase,
+  addNoteToDatabase,
   addSpecialServiceToTaskInDatabase,
   completeTaskInDatabase,
   deleteClientFromDatabase,
+  deleteNoteFromDatabase,
   loadDatabase,
   moveTaskInDatabase,
   saveDatabase,
+  toggleNoteInDatabase,
 } from './lib/database'
 import {
   addDays,
@@ -41,10 +46,11 @@ import type {
   ExpenseCategory,
   Frequency,
   PaymentMethod,
+  ReminderNote,
   ServiceTask,
 } from './types'
 
-type Page = 'dashboard' | 'calendar' | 'client' | 'payments' | 'finance'
+type Page = 'dashboard' | 'calendar' | 'client' | 'payments' | 'notes' | 'finance'
 
 type TaskWithClient = {
   task: ServiceTask
@@ -82,6 +88,7 @@ const pageMeta = {
   calendar: { label: 'יומן', icon: Calendar },
   client: { label: 'לקוח', icon: PlusCircle },
   payments: { label: 'תשלומים', icon: ReceiptText },
+  notes: { label: 'הערות', icon: StickyNote },
   finance: { label: 'כספים', icon: Wallet },
 } satisfies Record<Page, { label: string; icon: typeof Home }>
 
@@ -100,6 +107,7 @@ function App() {
   const [specialServiceTask, setSpecialServiceTask] = useState<TaskWithClient | null>(null)
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
+  const [dismissedYesterdayReminder, setDismissedYesterdayReminder] = useState(false)
 
   useEffect(() => {
     saveDatabase(database)
@@ -119,6 +127,14 @@ function App() {
         })
         .filter((item): item is TaskWithClient => Boolean(item)),
     [database.clients, database.tasks],
+  )
+
+  const yesterdayOpenTasks = useMemo(
+    () =>
+      tasksWithClients.filter(
+        ({ task }) => task.scheduledDate === addDays(todayKey(), -1) && task.status === 'pending',
+      ),
+    [tasksWithClients],
   )
 
   const completeTask = (taskId: string, paymentMethod: PaymentMethod) => {
@@ -166,6 +182,22 @@ function App() {
 
           {activePage === 'payments' && <PaymentsPage tasks={tasksWithClients} />}
 
+          {activePage === 'notes' && (
+            <NotesPage
+              clients={database.clients}
+              notes={database.notes}
+              onAddNote={(note) =>
+                setDatabase((current) => addNoteToDatabase(current, note))
+              }
+              onToggleNote={(noteId) =>
+                setDatabase((current) => toggleNoteInDatabase(current, noteId))
+              }
+              onDeleteNote={(noteId) =>
+                setDatabase((current) => deleteNoteFromDatabase(current, noteId))
+              }
+            />
+          )}
+
           {activePage === 'finance' && (
             <FinancePage
               expenses={database.expenses}
@@ -177,6 +209,13 @@ function App() {
       </div>
 
       <BottomNavigation activePage={activePage} onChange={setActivePage} />
+
+      {!dismissedYesterdayReminder && yesterdayOpenTasks.length > 0 && (
+        <YesterdayReminder
+          tasks={yesterdayOpenTasks}
+          onClose={() => setDismissedYesterdayReminder(true)}
+        />
+      )}
 
       {paymentTask && (
         <PaymentModal
@@ -285,6 +324,36 @@ function AppHeader() {
         </div>
       </div>
     </header>
+  )
+}
+
+function YesterdayReminder({
+  tasks,
+  onClose,
+}: {
+  tasks: TaskWithClient[]
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-3xl rounded-[1.5rem] border border-red-200 bg-red-50/92 p-4 text-red-950 shadow-[0_18px_50px_rgba(127,29,29,0.18)] backdrop-blur-xl">
+      <div className="flex items-start gap-3">
+        <Bell className="mt-1 h-5 w-5 shrink-0 text-red-600" />
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-black">תזכורת: סניפים שלא בוצעו אתמול</p>
+          <p className="mt-1 text-sm font-bold text-red-700">
+            {tasks.map(({ client }) => client.storeName).join(' · ')}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full bg-white/80 p-2 text-red-700"
+          aria-label="סגור תזכורת"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -785,6 +854,146 @@ function ClientPage({
   )
 }
 
+function NotesPage({
+  clients,
+  notes,
+  onAddNote,
+  onToggleNote,
+  onDeleteNote,
+}: {
+  clients: Client[]
+  notes: ReminderNote[]
+  onAddNote: (note: Omit<ReminderNote, 'id' | 'createdAt' | 'isDone'>) => void
+  onToggleNote: (noteId: string) => void
+  onDeleteNote: (noteId: string) => void
+}) {
+  const [text, setText] = useState('')
+  const [clientId, setClientId] = useState('')
+  const [reminderDate, setReminderDate] = useState(todayKey())
+
+  const clientById = new Map(clients.map((client) => [client.id, client]))
+  const sortedNotes = [...notes].sort((a, b) => {
+    if (a.isDone !== b.isDone) return Number(a.isDone) - Number(b.isDone)
+    return a.reminderDate.localeCompare(b.reminderDate)
+  })
+
+  const submitNote = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!text.trim()) return
+
+    onAddNote({
+      text: text.trim(),
+      clientId: clientId || null,
+      reminderDate,
+    })
+
+    setText('')
+    setClientId('')
+    setReminderDate(todayKey())
+  }
+
+  return (
+    <section className="space-y-4">
+      <SectionTitle eyebrow="תזכורות והערות" title="מה אסור לשכוח" />
+
+      <form onSubmit={submitNote} className="glass-card space-y-4 rounded-[1.75rem] p-5">
+        <label className="block">
+          <span className="mb-2 block text-sm font-black text-slate-700">הערה / תזכורת</span>
+          <textarea
+            value={text}
+            required
+            rows={4}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="לדוגמה: לבדוק שלט, חלון נוסף, לדבר עם בעל החנות..."
+            className="w-full rounded-2xl border border-white/70 bg-white/58 px-4 py-3 text-lg font-bold text-slate-950 outline-none backdrop-blur transition focus:border-cyan-400 focus:bg-white/85"
+          />
+        </label>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-2 block text-sm font-black text-slate-700">שייך לסניף</span>
+            <select
+              value={clientId}
+              onChange={(event) => setClientId(event.target.value)}
+              className="min-h-14 w-full rounded-2xl border border-white/70 bg-white/58 px-4 text-lg font-bold text-slate-950 outline-none backdrop-blur transition focus:border-cyan-400 focus:bg-white/85"
+            >
+              <option value="">כללי</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.storeName}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <TextField
+            label="תאריך תזכורת"
+            value={reminderDate}
+            onChange={setReminderDate}
+            type="date"
+            required
+          />
+        </div>
+
+        <button
+          type="submit"
+          className="aqua-gradient soft-glow flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl text-lg font-black text-white"
+        >
+          <Plus className="h-5 w-5" />
+          הוסף תזכורת
+        </button>
+      </form>
+
+      <div className="space-y-3">
+        <h3 className="px-1 text-xl font-black">כל ההערות והתזכורות</h3>
+        {sortedNotes.length === 0 ? (
+          <EmptyState title="אין עדיין תזכורות" text="כאן יופיעו הערות כלליות או הערות לפי סניף." />
+        ) : (
+          sortedNotes.map((note) => {
+            const client = note.clientId ? clientById.get(note.clientId) : null
+            return (
+              <article
+                key={note.id}
+                className={`glass-card rounded-[1.5rem] p-4 ${note.isDone ? 'opacity-60' : ''}`}
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black text-cyan-700">
+                      {client ? client.storeName : 'כללי'} · {formatShortDate(note.reminderDate)}
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-lg font-black text-slate-950">
+                      {note.text}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteNote(note.id)}
+                    className="rounded-full bg-red-50 p-3 text-red-700"
+                    aria-label="מחק תזכורת"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onToggleNote(note.id)}
+                  className={`min-h-12 w-full rounded-2xl text-sm font-black ${
+                    note.isDone
+                      ? 'bg-white/70 text-slate-600'
+                      : 'bg-emerald-50 text-emerald-800'
+                  }`}
+                >
+                  {note.isDone ? 'סומן כטופל' : 'סמן כטופל'}
+                </button>
+              </article>
+            )
+          })
+        )}
+      </div>
+    </section>
+  )
+}
+
 function FinancePage({
   tasks,
   expenses,
@@ -1147,7 +1356,7 @@ function BottomNavigation({
 }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/70 bg-white/72 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-3 shadow-[0_-18px_55px_rgba(10,83,112,0.12)] backdrop-blur-2xl">
-      <div className="mx-auto grid max-w-3xl grid-cols-5 gap-2">
+      <div className="mx-auto grid max-w-3xl grid-cols-6 gap-1.5">
         {(Object.keys(pageMeta) as Page[]).map((page) => {
           const Icon = pageMeta[page].icon
           const isActive = activePage === page
@@ -1156,7 +1365,7 @@ function BottomNavigation({
               key={page}
               type="button"
               onClick={() => onChange(page)}
-              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl text-xs font-black transition ${
+              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl text-[0.68rem] font-black transition ${
                 isActive ? 'aqua-gradient text-white shadow-lg shadow-cyan-500/20' : 'text-slate-500'
               }`}
             >

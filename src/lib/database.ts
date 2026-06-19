@@ -1,5 +1,5 @@
 import { seedDatabase } from '../data/seed'
-import type { AppDatabase, Client, Expense, PaymentMethod } from '../types'
+import type { AppDatabase, Client, Expense, PaymentMethod, ReminderNote } from '../types'
 import { addDays, getNextServiceDate, todayKey } from './date'
 
 const STORAGE_KEY = 'shefer-cleaning-database-v1'
@@ -42,6 +42,11 @@ const removeLegacyDemoData = (database: AppDatabase): AppDatabase => ({
   expenses: database.expenses.filter((expense) => !LEGACY_DEMO_EXPENSE_IDS.has(expense.id)),
 })
 
+const normalizeDatabase = (database: AppDatabase): AppDatabase => ({
+  ...database,
+  notes: database.notes ?? [],
+})
+
 const ensureRecurringTasks = (database: AppDatabase): AppDatabase => {
   const tasksToAdd = database.clients.flatMap((client) => {
     const clientTasks = database.tasks.filter((task) => task.clientId === client.id)
@@ -73,7 +78,7 @@ export const loadDatabase = (): AppDatabase => {
   }
 
   try {
-    const database = ensureRecurringTasks(removeLegacyDemoData(JSON.parse(stored) as AppDatabase))
+    const database = ensureRecurringTasks(normalizeDatabase(removeLegacyDemoData(JSON.parse(stored) as AppDatabase)))
     localStorage.setItem(STORAGE_KEY, JSON.stringify(database))
     return database
   } catch {
@@ -115,6 +120,9 @@ export const deleteClientFromDatabase = (
   ...database,
   clients: database.clients.filter((client) => client.id !== clientId),
   tasks: database.tasks.filter((task) => task.clientId !== clientId),
+  notes: database.notes.map((note) =>
+    note.clientId === clientId ? { ...note, clientId: null } : note,
+  ),
 })
 
 export const completeTaskInDatabase = (
@@ -176,4 +184,32 @@ export const addExpenseToDatabase = (
 ): AppDatabase => ({
   ...database,
   expenses: [...database.expenses, { ...expense, id: createId('expense') }],
+})
+
+export const addNoteToDatabase = (
+  database: AppDatabase,
+  note: Omit<ReminderNote, 'id' | 'createdAt' | 'isDone'>,
+): AppDatabase => ({
+  ...database,
+  notes: [
+    ...database.notes,
+    {
+      ...note,
+      id: createId('note'),
+      isDone: false,
+      createdAt: new Date().toISOString(),
+    },
+  ],
+})
+
+export const toggleNoteInDatabase = (database: AppDatabase, noteId: string): AppDatabase => ({
+  ...database,
+  notes: database.notes.map((note) =>
+    note.id === noteId ? { ...note, isDone: !note.isDone } : note,
+  ),
+})
+
+export const deleteNoteFromDatabase = (database: AppDatabase, noteId: string): AppDatabase => ({
+  ...database,
+  notes: database.notes.filter((note) => note.id !== noteId),
 })

@@ -81,6 +81,17 @@ create table if not exists public.special_services (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.reminder_notes (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  client_id uuid references public.clients (id) on delete set null,
+  reminder_date date not null default current_date,
+  text text not null,
+  is_done boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists clients_user_id_idx on public.clients (user_id);
 create index if not exists clients_is_active_idx on public.clients (is_active);
 create index if not exists service_tasks_user_date_idx on public.service_tasks (user_id, scheduled_date);
@@ -88,6 +99,8 @@ create index if not exists service_tasks_client_date_idx on public.service_tasks
 create index if not exists service_tasks_status_payment_idx on public.service_tasks (status, payment_method);
 create index if not exists expenses_user_date_idx on public.expenses (user_id, expense_date);
 create index if not exists special_services_user_task_idx on public.special_services (user_id, task_id);
+create index if not exists reminder_notes_user_date_idx on public.reminder_notes (user_id, reminder_date);
+create index if not exists reminder_notes_client_idx on public.reminder_notes (client_id);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -119,10 +132,16 @@ create trigger set_special_services_updated_at
 before update on public.special_services
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_reminder_notes_updated_at on public.reminder_notes;
+create trigger set_reminder_notes_updated_at
+before update on public.reminder_notes
+for each row execute function public.set_updated_at();
+
 alter table public.clients enable row level security;
 alter table public.service_tasks enable row level security;
 alter table public.expenses enable row level security;
 alter table public.special_services enable row level security;
+alter table public.reminder_notes enable row level security;
 
 drop policy if exists "Users can read their clients" on public.clients;
 create policy "Users can read their clients"
@@ -221,5 +240,30 @@ with check (auth.uid() = user_id);
 drop policy if exists "Users can delete their special services" on public.special_services;
 create policy "Users can delete their special services"
 on public.special_services for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can read their reminder notes" on public.reminder_notes;
+create policy "Users can read their reminder notes"
+on public.reminder_notes for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their reminder notes" on public.reminder_notes;
+create policy "Users can insert their reminder notes"
+on public.reminder_notes for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their reminder notes" on public.reminder_notes;
+create policy "Users can update their reminder notes"
+on public.reminder_notes for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their reminder notes" on public.reminder_notes;
+create policy "Users can delete their reminder notes"
+on public.reminder_notes for delete
 to authenticated
 using (auth.uid() = user_id);

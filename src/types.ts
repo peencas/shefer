@@ -40,8 +40,18 @@ export type Expense = {
   note: string
 }
 
+export type ReminderNote = {
+  id: string
+  text: string
+  clientId: string | null
+  reminderDate: string
+  isDone: boolean
+  createdAt: string
+}
+
 export type AppDatabase = {
   clients: Client[]
   tasks: ServiceTask[]
   expenses: Expense[]
+  notes: ReminderNote[]
 }
