@@ -40,6 +40,8 @@ import {
   todayKey,
   toDateKey,
 } from './lib/date'
+import { loadSupabaseDatabase, saveSupabaseDatabase } from './lib/supabaseDatabase'
+import { isSupabaseConfigured } from './lib/supabaseClient'
 import type {
   AppDatabase,
   Client,
@@ -108,10 +110,34 @@ function App() {
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
   const [dismissedYesterdayReminder, setDismissedYesterdayReminder] = useState(false)
+  const [remoteDatabaseReady, setRemoteDatabaseReady] = useState(!isSupabaseConfigured())
 
   useEffect(() => {
     saveDatabase(database)
-  }, [database])
+    if (remoteDatabaseReady && isSupabaseConfigured()) {
+      void saveSupabaseDatabase(database)
+    }
+  }, [database, remoteDatabaseReady])
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return
+
+    let isMounted = true
+
+    loadSupabaseDatabase()
+      .then((remoteDatabase) => {
+        if (remoteDatabase && isMounted) {
+          setDatabase(remoteDatabase)
+        }
+      })
+      .finally(() => {
+        if (isMounted) setRemoteDatabaseReady(true)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setShowSplash(false), 3000)
